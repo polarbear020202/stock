@@ -1,7 +1,7 @@
 import config
 import torch
 import torch.nn as nn
-from torchmetrics import MulticlassAccuracy, MulticlassPrecision, MulticlassRecall, MulticlassF1Score, MulticlassAUROC, MulticlassAveragePrecision
+from torchmetrics.classification import MulticlassAccuracy, MulticlassPrecision, MulticlassRecall, MulticlassF1Score, MulticlassAUROC, MulticlassAveragePrecision
 from tqdm import tqdm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
