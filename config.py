@@ -46,6 +46,20 @@ VAL_RATIO = 0.47
 
 #모델별 아키텍처 및 학습 하이퍼 파라미터
 DEFAULT_PARAMS = {
+    'TNC_pretrain': {
+        'arch_params' : {
+            'window_size': 60,
+            'mc_sample_size': 10,
+            'input_dim': 5,      # 주식 피처 개수 (예: OHLCV)
+            'hidden_dim': 64,
+            'z_dim': 32
+        },
+        'train_params' : {
+            'batch_size': 256,
+            'epochs': 20,
+            'lr': 1e-3
+        }
+    },
     'TFC_Pretrain': {
         'arch_params': {
             'ts_length': 16,
