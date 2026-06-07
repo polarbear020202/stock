@@ -48,11 +48,17 @@ VAL_RATIO = 0.47
 DEFAULT_PARAMS = {
     'TNC_pretrain': {
         'arch_params' : {
-            'window_size': 60,
-            'mc_sample_size': 10,
-            'input_dim': 5,      # 주식 피처 개수 (예: OHLCV)
-            'hidden_dim': 64,
-            'z_dim': 32
+            'window_size': 128,      # TNC 데이터셋 분할용 (이 값이 seq_len과 동일해야 함)
+            'mc_sample_size': 10,    # Positive 샘플링 범위
+            'input_dim': 38,          # 피처 개수 (예: OHLCV)
+            'seq_len': 128,          # 입력 시퀀스 길이
+            'patch_len': 4,         # 패치 길이
+            'stride': 8,             # 패치 스트라이드
+            'd_model': 64,           # 트랜스포머 차원
+            'n_heads': 4,
+            'n_layers': 3,
+            'z_dim': 32,             # 최종 압축 임베딩 차원
+            'disc_hidden_dim': 64    # 판별자 은닉층 차원
         },
         'train_params' : {
             'batch_size': 256,

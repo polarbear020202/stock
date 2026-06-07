@@ -101,20 +101,49 @@ class TNCDiscriminator(nn.Module):
         return self.model(feat)
 
 class TNC(nn.Module):
-    def __init__(self, input_dim, hidden_dim, z_dim):
+    def __init__(
+        self, 
+        # --- Encoder 파라미터 ---
+        input_dim, 
+        seq_len, 
+        patch_len, 
+        stride, 
+        d_model=64, 
+        n_heads=4, 
+        n_layers=3, 
+        z_dim=32,
+        # --- Discriminator 파라미터 ---
+        disc_hidden_dim=64
+    ):
         super().__init__()
-        self.encoder = TNCEncoder(input_dim, hidden_dim, z_dim) # 이전에 정의한 인코더
-        self.discriminator = TNCDiscriminator(z_dim, hidden_dim) # 이전에 정의한 판별자
+        
+        # 1. 인코더 초기화 (모든 트랜스포머 및 패치 파라미터 전달)
+        self.encoder = TNCEncoder(
+            input_dim=input_dim,
+            seq_len=seq_len,
+            patch_len=patch_len,
+            stride=stride,
+            d_model=d_model,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            z_dim=z_dim
+        ) 
+        
+        # 2. 판별자 초기화 (z_dim과 판별자 전용 은닉층 차원 전달)
+        self.discriminator = TNCDiscriminator(
+            z_dim=z_dim, 
+            hidden_dim=disc_hidden_dim
+        ) 
 
     def forward(self, anchor, pos, neg):
-        # 1. 인코딩
+        # 1. 인코딩: 각각의 윈도우를 Patch-Transformer를 거쳐 z 벡터로 압축
         z_anchor = self.encoder(anchor)
         z_pos = self.encoder(pos)
         z_neg = self.encoder(neg)
         
-        # 2. 판별자 통과
-        prob_pos = self.discriminator(z_anchor, z_pos).squeeze()
-        prob_neg = self.discriminator(z_anchor, z_neg).squeeze()
+        # 2. 판별자 통과: 기준(anchor) 대비 이웃(pos) 및 비이웃(neg) 확률 계산
+        prob_pos = self.discriminator(z_anchor, z_pos).squeeze(-1)
+        prob_neg = self.discriminator(z_anchor, z_neg).squeeze(-1)
         
         return prob_pos, prob_neg
 

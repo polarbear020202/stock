@@ -53,11 +53,7 @@ class UnifiedTimeSeriesTrainer:
 
         # 3. 모델, 손실 함수, 옵티마이저 초기화
         # arch_params에 input_dim, hidden_dim, z_dim이 포함되어야 함
-        model = TNC(
-            input_dim=self.arch_params['input_dim'],
-            hidden_dim=self.arch_params['hidden_dim'],
-            z_dim=self.arch_params['z_dim']
-        ).to(self.device)
+        model = TNC(**self.arch_params).to(self.device)
 
         criterion = nn.BCELoss() # TNC는 이진 교차 엔트로피 사용
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
