@@ -1,11 +1,11 @@
-import data
+import make_data
 import config
 import labeler
 
 import pickle
 from pathlib import Path
 
-df_dict = data.KRXDataCollector(years=20, delay=0.4)(config.MICRO_TARGET_TICKERS, config.MACRO_TARGET_TICKERS)
+df_dict = make_data.KRXDataCollector(years=20, delay=0.4)(config.MICRO_TARGET_TICKERS, config.MACRO_TARGET_TICKERS)
 labeled_df_dict = labeler.DfDictIterator()(df_dict, labeler.labeler(window=config.LABEL_WINDOW, ret_col='log_ret', min_return=0.1, max_time=40 ))
 
 data_to_save = {
