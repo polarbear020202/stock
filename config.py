@@ -103,33 +103,5 @@ DEFAULT_PARAMS = {
                 "feat_dim" : 128
             }
         }
-    },
-    'XGB': {
-        'objective': 'multi:softprob',
-        'num_class': 5,
-        'eval_metric': 'mlogloss',
-        'tree_method': 'hist',      # XGBoost GPU 사용을 위한 트리 구조
-        'device': 'cuda',
-        'max_depth': 4,
-        'learning_rate': 0.05,
-        'subsample': 0.8,
-        'colsample_bytree': 0.8,
-        'seed': 42
-    },
-    'LGBM': {
-        'objective': 'multiclass',
-        'num_class': 5,
-        'metric': 'multi_logloss',
-        'device_type': 'gpu',       # LightGBM GPU 사용
-        'boosting_type': 'gbdt',
-        'class_weight': 'balanced',
-        'max_depth': 4,
-        'num_leaves': 15,
-        'learning_rate': 0.05,
-        'subsample': 0.8,
-        'colsample_bytree': 0.8,
-        'min_child_samples': 30,
-        'random_state': 42,
-        'verbose': -1,
     }
 }
