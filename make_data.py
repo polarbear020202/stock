@@ -6,154 +6,7 @@ import FinanceDataReader as fdr # pykrx 대신 fdr 사용
 
 import config
 
-class RollingWindowScaler:
-    def __init__(self):
-        pass
 
-    def rolling_window_scaling(self, df,window_len,columns = None):
-        epsilon = 1e-8
-        df = df.copy()
-        if isinstance(df, pd.Series):
-            df = df.to_frame()
-        if columns == None:
-            columns = df.columns
-        for col in columns:
-            # 롤링 평균과 표준편차 계산
-            roll_mean = df[col].rolling(window=window_len,min_periods=int(window_len/2) ).mean()
-            roll_std = df[col].rolling(window=window_len,min_periods=int(window_len/2)).std()
-
-            # Z-Score 변환 (표준편차가 0일 경우 대비 epsilon 추가)
-            df[col] = (df[col] - roll_mean) / (roll_std + epsilon)
-
-        return df
-    def rolling_minmax(self, df, window_len, columns=None):
-        # Min-Max 방식 (0~1 Scaling)
-        epsilon = 1e-6
-        df = df.copy()
-        if isinstance(df, pd.Series):
-            df = df.to_frame()
-        if columns is None:
-            columns = df.columns
-
-        for col in columns:
-            # 롤링 최솟값과 최댓값 계산
-            roll_min = df[col].rolling(window=window_len, min_periods=int(window_len/2)).min()
-            roll_max = df[col].rolling(window=window_len, min_periods=int(window_len/2)).max()
-
-            # Min-Max Scaling 공식: (X - Min) / (Max - Min)
-            df[col] = (df[col] - roll_min) / (roll_max - roll_min + epsilon)
-
-        return df
-
-    def static_clip_minmax(self, df, columns=None, mini=10, maxi=60): #역사적으로 vix는 10~60사이를 오감
-        df = df.copy()
-        if isinstance(df, pd.Series):
-            df = df.to_frame()
-        if columns is None:
-            columns = df.columns
-
-        for col in columns:
-            # 1. 로그 변환 (하위 구간 해상도 확보)
-            val_log = np.log1p(df[col])
-            min_log = np.log1p(mini)
-            max_log = np.log1p(maxi)
-
-            # 2. 고정 Min-Max 스케일링
-            scaled = (val_log - min_log) / (max_log - min_log)
-
-            # 3. Clip (0~1 범위를 넘어서는 극단값 제한)
-            df[col] = scaled.clip(0, 1)
-
-        return df
-    def ewm_window_scaling(self, df, window_len, ticker, columns=None, clip_limit=2):
-        epsilon = 1e-8
-        df = df.copy()
-
-        if isinstance(df, pd.Series):
-            df = df.to_frame()
-
-        if columns is None:
-            columns = df.columns
-
-        # ---------------------------------------------------------
-        # 1. OHLC 및 가격 기반 컬럼 식별
-        # ---------------------------------------------------------
-        # 종가 컬럼을 스케일링의 '기준(Anchor)'으로 삼습니다.
-        close_col = f'{ticker}_log_close'
-
-        # 종가의 스케일을 같이 적용받아야 하는 가격 관련 컬럼들
-        # (만약 VWAP이나 SMA도 스케일링을 한다면 이 리스트에 포함해야 이격이 유지됩니다)
-        price_cols = [f'{ticker}_log_open', f'{ticker}_log_high', f'{ticker}_log_low', f'{ticker}_log_close']
-
-        # 현재 df에 존재하는 가격 컬럼만 필터링
-        target_price_cols = [col for col in price_cols if col in columns and col in df.columns]
-
-        # 그 외 개별적으로 스케일링할 컬럼들 (Volume, RSI, Frac_diff 등)
-        other_cols = [col for col in columns if col not in target_price_cols + [f'{ticker}_vol_frac_diff',f'{ticker}_frac_diff'] and col in df.columns]
-
-        # ---------------------------------------------------------
-        # 2. 가격 컬럼 그룹 스케일링 (종가 기준 통일)
-        # ---------------------------------------------------------
-        if close_col in df.columns and len(target_price_cols) > 0:
-            # 기준이 되는 종가의 EWM 평균과 표준편차를 구함
-            close_ewm_mean = df[close_col].ewm(span=window_len, min_periods=int(window_len/2)).mean()
-            close_ewm_std = df[close_col].ewm(span=window_len, min_periods=int(window_len/2)).std()
-
-            for col in target_price_cols:
-                # 모든 OHLC 가격을 종가의 평균/표준편차로 스케일링 -> 캔들 꼬리/몸통 비율 유지!
-                df[col] = (df[col] - close_ewm_mean) / (close_ewm_std + epsilon)
-
-                if clip_limit is not None:
-                    df[col] = df[col].clip(lower=-clip_limit, upper=clip_limit)
-
-        for col in [f'{ticker}_vol_frac_diff',f'{ticker}_frac_diff']:
-            ewm_mean = df[col].ewm(span=window_len*10, min_periods=int(window_len*10/2)).mean()
-            ewm_std = df[col].ewm(span=window_len*10, min_periods=int(window_len*10/2)).std()
-
-            df[col] = (df[col] - ewm_mean) / (ewm_std + epsilon)
-
-            if clip_limit is not None:
-                df[col] = df[col].clip(lower=-clip_limit, upper=clip_limit)
-
-
-        # ---------------------------------------------------------
-        # 3. 나머지 개별 컬럼 스케일링 (기존 로직 유지)
-        # ---------------------------------------------------------
-        for col in other_cols:
-            ewm_mean = df[col].ewm(span=window_len, min_periods=int(window_len/2)).mean()
-            ewm_std = df[col].ewm(span=window_len, min_periods=int(window_len/2)).std()
-
-            df[col] = (df[col] - ewm_mean) / (ewm_std + epsilon)
-
-            if clip_limit is not None:
-                df[col] = df[col].clip(lower=-clip_limit, upper=clip_limit)
-
-        return df
-
-    def rolling_robust(self, df, window_len, columns=None, clip_limit=3.0):
-        epsilon = 1e-8
-        df = df.copy()
-        if isinstance(df, pd.Series):
-            df = df.to_frame()
-        if columns is None:
-            columns = df.columns
-
-        for col in columns:
-            roll_median = df[col].rolling(window=window_len, min_periods=int(window_len/2)).median()
-            roll_q1 = df[col].rolling(window=window_len, min_periods=int(window_len/2)).quantile(0.25)
-            roll_q3 = df[col].rolling(window=window_len, min_periods=int(window_len/2)).quantile(0.75)
-
-            iqr = roll_q3 - roll_q1
-
-            df[col] = (df[col] - roll_median) / (iqr + epsilon)
-
-            if clip_limit is not None:
-                df[col] = df[col].clip(-clip_limit, clip_limit)
-
-        return df
-
-    def __call__(self,df,window_len, columns = None):
-        return self.rolling_robust(df,window_len,columns)
 
 class CyclicalFeatureEncoder:
     def __init__(self, include_dow=True, include_month=True):
@@ -326,7 +179,6 @@ class KRXDataCollector:
                 combined_df = df.join(master_macro_df, how='outer')
                 combined_df = combined_df.ffill().dropna()
 
-                combined_df = roller(combined_df, window_len=config.INPUT_WINDOW)
                 combined_df = sin_cos_encoder(combined_df)
 
                 combined_df = combined_df.dropna()
@@ -342,6 +194,5 @@ class KRXDataCollector:
         print(f"\n 최종 수집 완료: 총 {len(stock_dict)}개 종목 데이터 확보")
         return stock_dict
 
-roller = RollingWindowScaler() # df, window_len
 sin_cos_encoder = CyclicalFeatureEncoder(include_dow=config.INCLUDE_DOW , include_month=config.INCLUDE_MONTH) # df
 transform = StockFeatureProcessor() # df, macro = True

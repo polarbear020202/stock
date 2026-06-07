@@ -3,36 +3,81 @@ import torch.nn as nn
 
 from tqdm import tqdm
 
+class RevIN(nn.Module):
+    def __init__(self, num_features: int = 1, eps=1e-5, affine=True):
+        """
+        단변량일 경우 num_features는 1로 설정합니다.
+        """
+        super(RevIN, self).__init__()
+        self.num_features = num_features
+        self.eps = eps
+        self.affine = affine
+
+        # 모델이 스스로 스케일과 시프트를 학습할 수 있게 해주는 파라미터
+        if self.affine:
+            self.affine_weight = nn.Parameter(torch.ones(self.num_features))
+            self.affine_bias = nn.Parameter(torch.zeros(self.num_features))
+
+    def forward(self, x, mode: str):
+        if mode == 'calc_and_norm':
+            self._get_statistics(x)
+            x = self._normalize(x)
+        elif mode == 'norm':
+            x = self._normalize(x)
+        elif mode == 'denorm':
+            x = self._denormalize(x)
+        else:
+            raise NotImplementedError
+        return x
+
+    def _get_statistics(self, x):
+        # x shape: [batch_size, sequence_length, num_features]
+        # 시간축(dim=1)을 기준으로 평균과 분산을 계산하여 내부 변수로 저장
+        self.mean = torch.mean(x, dim=1, keepdim=True).detach()
+        self.stdev = torch.sqrt(torch.var(x, dim=1, keepdim=True, unbiased=False) + self.eps).detach()
+
+    def _normalize(self, x):
+        # 저장된 평균과 분산으로 데이터 정규화
+        x = x - self.mean
+        x = x / self.stdev
+
+        # 학습 가능한 파라미터(Affine) 적용
+        if self.affine:
+            x = x * self.affine_weight
+            x = x + self.affine_bias
+        return x
+
+    def _denormalize(self, x):
+        # 정규화의 정확히 역순으로 연산 (Denormalization)
+        if self.affine:
+            x = x - self.affine_bias
+            x = x / (self.affine_weight + self.eps * self.eps)
+
+        x = x * self.stdev
+        x = x + self.mean
+        return x
+
 class TNCEncoder(nn.Module):
     def __init__(self, input_dim, seq_len, patch_len, stride, d_model=64, n_heads=4, n_layers=3, z_dim=32):
-        """
-        Args:
-            input_dim: 시계열 피처(채널) 개수 (M)
-            seq_len: 입력 시계열의 전체 길이 (L)
-            patch_len: 각 패치의 길이 (P)
-            stride: 패치 간 이동 간격 (S)
-            d_model: 트랜스포머 모델 차원
-            n_heads: 트랜스포머 Multi-head 개수
-            n_layers: 트랜스포머 인코더 레이어 수
-            z_dim: TNC Discriminator로 넘어갈 최종 임베딩 벡터 차원
-        """
         super().__init__()
         self.input_dim = input_dim
         self.patch_len = patch_len
         self.stride = stride
         self.d_model = d_model
         
-        # 1. 패치 개수 계산 공식: (L - P) / S + 1
+        # 0. RevIN 모듈 추가 (입력 피처 수에 맞게 초기화)
+        self.revin = RevIN(num_features=input_dim, affine=True)
+        
+        # 1. 패치 개수 계산
         self.num_patches = int((seq_len - patch_len) / stride) + 1
         
-        # 2. Patch Projection (Shared Encoder의 진입점)
-        # 패치 내의 값들을 d_model 차원으로 임베딩 (가중치 공유)
+        # 2. Patch Projection
         self.patch_proj = nn.Linear(patch_len, d_model)
         
-        # 3. Positional Encoding (학습 가능한 파라미터 사용)
+        # 3. Positional Encoding
         self.W_pos = nn.Parameter(torch.randn(1, self.num_patches, d_model) * 0.02)
         
-        # 4. Transformer Encoder (Shared Encoder의 핵심)
+        # 4. Transformer Encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model, 
             nhead=n_heads, 
@@ -44,7 +89,6 @@ class TNCEncoder(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
         
         # 5. 최종 Representation (z) 생성용 FC Layer
-        # 채널 수(M) * 패치 수 * d_model 을 Flatten 한 뒤 z_dim으로 압축
         self.flatten_dim = input_dim * self.num_patches * d_model
         self.fc = nn.Linear(self.flatten_dim, z_dim)
 
@@ -52,15 +96,17 @@ class TNCEncoder(nn.Module):
         """
         x shape: (Batch_size, Seq_len, Input_dim) -> (B, L, M)
         """
+        # [Step 0] RevIN을 통한 인스턴스 정규화 (핵심 추가 부분)
+        # 패치화나 채널 분리 이전에, 시계열 전체 길이(L)에 대해 정규화를 먼저 수행합니다.
+        x = self.revin(x, mode='calc_and_norm')
+
         B, L, M = x.shape
         
         # [Step 1] Channel Independence (채널 독립성)
-        # 피처(채널)를 배치 차원으로 합쳐서 각 채널이 독립적인 시계열인 것처럼 처리
         # (B, L, M) -> (B, M, L) -> (B * M, L)
         x = x.permute(0, 2, 1).reshape(B * M, L)
         
         # [Step 2] Patching (패치화)
-        # unfold를 사용하여 시퀀스를 패치 단위로 분할
         # (B * M, L) -> (B * M, num_patches, patch_len)
         x = x.unfold(dimension=-1, size=self.patch_len, step=self.stride)
         
@@ -69,7 +115,7 @@ class TNCEncoder(nn.Module):
         x = self.patch_proj(x) 
         x = x + self.W_pos
         
-        # [Step 4] Transformer Encoder (모든 채널이 동일한 가중치 공유)
+        # [Step 4] Transformer Encoder
         # (B * M, num_patches, d_model)
         x = self.transformer_encoder(x)
         
@@ -77,11 +123,10 @@ class TNCEncoder(nn.Module):
         # (B * M, num_patches, d_model) -> (B, M, num_patches, d_model)
         x = x.view(B, M, self.num_patches, self.d_model)
         
-        # 채널과 패치 정보를 모두 Flatten
         # (B, M * num_patches * d_model)
         x = x.reshape(B, -1)
         
-        # (B, z_dim) - 최종적으로 Discriminator에 들어갈 단일 벡터 z 생성
+        # (B, z_dim)
         z = self.fc(x)
         
         return z
