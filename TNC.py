@@ -113,7 +113,8 @@ class TNC(nn.Module):
         n_layers=3, 
         z_dim=32,
         # --- Discriminator 파라미터 ---
-        disc_hidden_dim=64
+        disc_hidden_dim=64,
+        **kwargs
     ):
         super().__init__()
         
