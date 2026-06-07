@@ -326,7 +326,7 @@ class KRXDataCollector:
                 combined_df = df.join(master_macro_df, how='outer')
                 combined_df = combined_df.ffill().dropna()
 
-                combined_df = roller(combined_df, window_len=INPUT_WINDOW)
+                combined_df = roller(combined_df, window_len=config.INPUT_WINDOW)
                 combined_df = sin_cos_encoder(combined_df)
 
                 combined_df = combined_df.dropna()
